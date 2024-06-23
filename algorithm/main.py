@@ -22,7 +22,7 @@ def get_number_after(string, key_word, delimiter):
 
 
 class AntVrp:
-    def __init__(self, file_path, num_ants=10, max_iter_num=10, alpha=1.0, beta=1, phi=0.05):  # requires a file
+    def __init__(self, file_path, num_ants=10, max_iter_num=10, alpha=1.0, beta=1, phi=0.05):
         self.paths = None
         fin = open(file_path)
         while 1:
@@ -53,7 +53,7 @@ class AntVrp:
 
                 self.adj_mat[j][i] = self.adj_mat[i][j]
 
-        fin.readline()  # DEMAND_SECTION
+        fin.readline()
         self.demands = []
         for i in range(self.dimension):
             data = list(map(int, fin.readline().split()))
@@ -128,6 +128,29 @@ class AntVrp:
 
         return total_cost
 
+    def two_opt(self, route):
+        best_route = route
+        improved = True
+        while improved:
+            improved = False
+            best_distance = self.route_distance(best_route)
+            for i in range(1, len(route) - 2):
+                for j in range(i + 1, len(route)):
+                    if j - i == 1: continue
+                    new_route = route[:i] + route[i:j][::-1] + route[j:]
+                    new_distance = self.route_distance(new_route)
+                    if new_distance < best_distance:
+                        best_route = new_route
+                        improved = True
+                        best_distance = new_distance
+        return best_route
+
+    def route_distance(self, route):
+        distance = 0
+        for i in range(len(route) - 1):
+            distance += self.adj_mat[route[i]][route[i + 1]]
+        return distance
+
     def solve(self):
         start_time = time.time()
         for iter_num in range(self.max_iter_num):
@@ -142,23 +165,23 @@ class AntVrp:
                     self.paths.append([])
                     self.paths[truck].append(current_position)
 
-                    while current_position != -1:
+                    while True:
                         old_position = current_position
                         current_position = self.choose_next_vert(current_position, cargo_left)
-                        if current_position != -1:
-                            self.paths[truck].append(current_position)
-                            self.visited_nodes.append(current_position)
-                            cargo_left -= self.demands[current_position]
-                            self.step_pheromone_update(old_position, current_position)
-                        else:
-                            self.paths[truck].append(self.depot_position)
-                            self.step_pheromone_update(old_position, self.depot_position)
+                        if current_position == -1:
+                            break
+                        self.paths[truck].append(current_position)
+                        self.visited_nodes.append(current_position)
+                        cargo_left -= self.demands[current_position]
+                        self.step_pheromone_update(old_position, current_position)
 
-                node_count = 0
-                for truck_path in self.paths:
-                    for _ in truck_path:
-                        node_count += 1
+                    self.paths[truck].append(self.depot_position)
+                    self.step_pheromone_update(old_position, self.depot_position)
 
+                for truck in range(self.num_trucks):
+                    self.paths[truck] = self.two_opt(self.paths[truck])
+
+                node_count = sum(len(truck_path) for truck_path in self.paths)
                 if node_count - 2 * len(self.paths) + 1 == self.dimension:
                     curr_ant_cost = self.calc_cost()
                     if curr_ant_cost < self.best_cost_in_iteration:
@@ -175,7 +198,7 @@ class AntVrp:
 
 class Benchmarks:
 
-    def __init__(self, num_ants=1, max_iter_num=1, alpha=1.0, beta=1, phi=0.5, times_repeat=10, verbose=False):
+    def __init__(self, num_ants=1, max_iter_num=1, alpha=1.0, beta=1.0, phi=0.5, times_repeat=10, verbose=False):
         self.verbose = verbose
         self.num_ants = num_ants
         self.max_iter_num = max_iter_num
@@ -236,7 +259,8 @@ class Benchmarks:
 
                 with open(ANS_PATH + '/' + folder_name + '/' + file_name + ".sol", "w") as ans_file:
                     for truck in range(len(best_paths)):
-                        ans_file.write("Route #%d: " % (truck + 1) + " ".join(str(x + 1) for x in best_paths[truck]))
+                        route_without_depot = [node + 1 for node in best_paths[truck] if node != 0]
+                        ans_file.write("Route #%d: " % (truck + 1) + " ".join(map(str, route_without_depot)))
                         ans_file.write("\n")
                     ans_file.write("cost %d" % best_cost)
                     ans_file.write("\n")
@@ -244,7 +268,7 @@ class Benchmarks:
         return pd.DataFrame(results)
 
 
-bench = Benchmarks(num_ants=8, max_iter_num=50, alpha=0.75, beta=5, phi=0.1, times_repeat=10, verbose=True)
+bench = Benchmarks(num_ants=8, max_iter_num=100, alpha=0.75, beta=5, phi=0.1, times_repeat=10, verbose=True)
 results_df = bench.report()
 
 results_df.to_csv("Results.csv")
